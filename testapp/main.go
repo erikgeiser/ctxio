@@ -16,9 +16,9 @@ func run() error {
 		return fmt.Errorf("set terminal to raw mode: %w", err)
 	}
 
-	defer term.Restore(int(os.Stdin.Fd()), state) // nolint:errcheck
+	defer term.Restore(int(os.Stdin.Fd()), state) //nolint:errcheck
 
-	crwc, err := ctxio.NewCancelReader(os.Stdin)
+	crwc, err := ctxio.WrapFile(os.Stdin)
 	if err != nil {
 		return fmt.Errorf("create cancel reader: %w", err)
 	}
@@ -26,6 +26,7 @@ func run() error {
 	fmt.Printf("Testing %T\n\r", crwc)
 
 	timeout := 3 * time.Second
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
