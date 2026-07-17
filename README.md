@@ -6,15 +6,16 @@
     <a href="https://pkg.go.dev/github.com/erikgeiser/ctxio"><img alt="Go Doc" src="https://img.shields.io/badge/godoc-reference-blue.svg?style=for-the-badge"></a>
     <a href="https://github.com/erikgeiser/ctxio/actions?workflow=CI"><img alt="GitHub Action: CI" src="https://img.shields.io/github/actions/workflow/status/erikgeiser/ctxio/ci.yml?branch=main&style=for-the-badge"></a>
     <a href="/LICENSE"><img alt="Software License" src="https://img.shields.io/badge/license-MIT-brightgreen.svg?style=for-the-badge"></a>
-    <a href="https://goreportcard.com/report/github.com/erikgeiser/ctxio"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/erikgeiser/ctxio?style=for-the-badge"></a>
   </p>
 </p>
 
 `ctxio` wraps files, network connections, pipes, TTYs, etc. so that reads and
-writes can be canceled via a `context.Context` — without consuming data from the
+writes can be canceled via a `context.Context` without consuming data from the
 underlying file descriptor. This is useful when you need to interrupt a blocking
 `Read` or `Write` and then continue using the same connection or file
 afterwards.
+
+The origin of `ctxio` is [this PR](https://github.com/charmbracelet/bubbletea/pull/120) for the [bubbletea](https://github.com/charmbracelet/bubbletea) library, which solves the more specific use-case: A read on `os.Stdin` which may block due to a lack of input needs to be interrupted while ensuring that the next read won't miss input bytes.
 
 ## Cancelation Mechanisms
 
@@ -78,7 +79,7 @@ There are two ways to cancel an operation:
 1. **Context-based**: Use `ReadContext` / `WriteContext` with a
    cancelable context.
 2. **Explicit**: Call `Cancel()` directly. This is useful when working with APIs
-   that expect a plain `io.Reader` / `io.Writer` — the `Read` and `Write`
+   that expect a plain `io.Reader` / `io.Writer`. The `Read` and `Write`
    methods on `ContextIO` can be interrupted by calling `Cancel()`,
    `CancelReads()` or `CancelWrites()` from another goroutine.
 
@@ -140,6 +141,6 @@ with some caveats:
 - Cancellation works by **closing the underlying object**, making it permanently
   unusable after cancellation.
 - The object **cannot be reused** after `Cancel()` is called, even after calling
-  `Reset()` — `Reset()` only clears the cancellation flag.
+  `Reset()`, `Reset()` only clears the cancellation flag.
 - This backend is best used for one-shot operations or when the object is
   expected to be closed anyway.
