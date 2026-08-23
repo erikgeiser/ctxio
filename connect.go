@@ -62,30 +62,27 @@ func Connect(ctx context.Context, a ContextIO, b ContextIO) error {
 // io.ReadWriteCloser values and closes both sides when it returns.
 func ConnectAndClose(ctx context.Context, a io.ReadWriteCloser, b io.ReadWriteCloser) error {
 	// Fallback: cancel by closing both sides.
-	copyDone := make(chan struct{})
-
-	defer func() { close(copyDone) }()
-
-	var closedByUs atomicFlag
+	var (
+		closedByUs atomicFlag
+		closeOnce  sync.Once
+	)
 
 	forceCloseBoth := func() {
-		closedByUs.Set()
+		closeOnce.Do(func() {
+			closedByUs.Set()
 
-		_ = a.Close()
-		_ = b.Close()
+			_ = a.Close()
+			_ = b.Close()
+		})
 	}
 
-	defer forceCloseBoth()
+	eg, groupCtx := errgroup.WithContext(ctx)
 
-	go func() {
-		select {
-		case <-ctx.Done():
-			forceCloseBoth()
-		case <-copyDone:
-		}
+	stopClosing := context.AfterFunc(groupCtx, forceCloseBoth)
+	defer func() {
+		stopClosing()
+		forceCloseBoth()
 	}()
-
-	eg, _ := errgroup.WithContext(ctx)
 
 	eg.Go(func() error {
 		_, err := io.Copy(a, b)

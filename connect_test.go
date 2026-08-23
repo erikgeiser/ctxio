@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
@@ -45,6 +46,103 @@ func TestConnectAndClose(t *testing.T) {
 	if !b.Closed() {
 		t.Errorf("expected b to be closed")
 	}
+}
+
+func TestConnectAndCloseReturnsWhenOneCopyDirectionFails(t *testing.T) {
+	t.Parallel()
+
+	copyErr := errors.New("copy failed")
+	blocking := newBlockingReadWriteCloser()
+	failing := newFailingReadWriteCloser(copyErr)
+
+	result := make(chan error, 1)
+	go func() {
+		result <- ConnectAndClose(context.Background(), blocking, failing)
+	}()
+
+	select {
+	case <-blocking.readStarted:
+	case <-time.After(time.Second):
+		t.Fatal("reverse copy did not start")
+	}
+
+	select {
+	case <-failing.readFinished:
+	case <-time.After(time.Second):
+		t.Fatal("failing copy did not return")
+	}
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, copyErr) {
+			t.Fatalf("ConnectAndClose returned %v, want %v", err, copyErr)
+		}
+	case <-time.After(time.Second):
+		_ = blocking.Close()
+		_ = failing.Close()
+
+		<-result
+
+		t.Fatal("ConnectAndClose did not unblock the other copy direction after an error")
+	}
+}
+
+type blockingReadWriteCloser struct {
+	readStarted chan struct{}
+	unblock     chan struct{}
+	startOnce   sync.Once
+	closeOnce   sync.Once
+}
+
+func newBlockingReadWriteCloser() *blockingReadWriteCloser {
+	return &blockingReadWriteCloser{
+		readStarted: make(chan struct{}),
+		unblock:     make(chan struct{}),
+	}
+}
+
+func (connection *blockingReadWriteCloser) Read(_ []byte) (int, error) {
+	connection.startOnce.Do(func() { close(connection.readStarted) })
+	<-connection.unblock
+
+	return 0, io.ErrClosedPipe
+}
+
+func (*blockingReadWriteCloser) Write(contents []byte) (int, error) {
+	return len(contents), nil
+}
+
+func (connection *blockingReadWriteCloser) Close() error {
+	connection.closeOnce.Do(func() { close(connection.unblock) })
+
+	return nil
+}
+
+type failingReadWriteCloser struct {
+	err          error
+	readFinished chan struct{}
+	finishOnce   sync.Once
+}
+
+func newFailingReadWriteCloser(err error) *failingReadWriteCloser {
+	return &failingReadWriteCloser{
+		err:          err,
+		readFinished: make(chan struct{}),
+	}
+}
+
+func (connection *failingReadWriteCloser) Read(_ []byte) (int, error) {
+	connection.finishOnce.Do(func() { close(connection.readFinished) })
+
+	return 0, connection.err
+}
+
+func (*failingReadWriteCloser) Write(contents []byte) (int, error) {
+	return len(contents), nil
+}
+
+func (*failingReadWriteCloser) Close() error {
+	return nil
 }
 
 func TestConnectAndCloseCancel(t *testing.T) {
